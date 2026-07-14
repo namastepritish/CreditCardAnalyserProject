@@ -22,8 +22,12 @@ def analyze_transactions(data):
 
 
     return {
+        "Total Spending": total_spend,
+        "Total Cashback": total_cashback,
+        "Total Payment": total_payment,
+        "Total Taxes": total_tax,
         "spending": total_spend,
         "cashback": total_cashback,
         "payment": total_payment,
-        "tax": total_tax
+        "tax": total_tax,
     }

@@ -9,22 +9,7 @@ HDFC_MILLENNIA_RULES later and this file doesn't change at all.
 """
 
 import pandas as pd
-
-
-def classify_spend_type(description: str, known_online_merchants: list) -> str:
-    """
-    Very simple online/offline classifier for V0.2.
-
-    Real bank statements identify online vs offline via Merchant Category
-    Code (MCC), which we don't have access to from a plain Excel/PDF
-    export. So for now we do keyword matching on the merchant description.
-    This is a placeholder — V0.3 will build a proper category classifier.
-    """
-    desc_lower = description.lower()
-    for merchant in known_online_merchants:
-        if merchant in desc_lower:
-            return "online"
-    return "offline"
+from src.categorizer import classify_transaction
 
 
 def is_excluded(description: str, excluded_keywords: list) -> bool:
@@ -59,6 +44,7 @@ def calculate_expected_cashback(transactions_df: pd.DataFrame, card_rules: dict)
     # accumulated so far, so we can enforce the per-bucket cap as we go.
     bucket_totals = {bucket["name"]: 0.0 for bucket in card_rules["buckets"]}
     transaction_details = []
+    needs_review = []  # low-confidence transactions, shown separately — not blocking
 
     for index, row in spend_rows.iterrows():
         description = row["Description"]
@@ -71,7 +57,22 @@ def calculate_expected_cashback(transactions_df: pd.DataFrame, card_rules: dict)
             })
             continue
 
-        spend_type = classify_spend_type(description, card_rules["known_online_merchants"])
+        classification = classify_transaction(description, amount)
+
+        if classification["category"] == "UPI Payment (below threshold)":
+            transaction_details.append({
+                "description": description, "amount": amount,
+                "bucket": "UPI below ₹100 — excluded", "cashback_earned": 0.0,
+            })
+            continue
+
+        spend_type = classification["spend_type"]
+
+        if classification["confidence"] == "low":
+            needs_review.append({
+                "description": description, "amount": amount,
+                "guessed_category": classification["category"],
+            })
 
         # Find the bucket whose spend_type matches (online -> "Online spends", etc.)
         matching_bucket = next(
@@ -105,4 +106,5 @@ def calculate_expected_cashback(transactions_df: pd.DataFrame, card_rules: dict)
         "expected_cashback_total": expected_total,
         "bucket_breakdown": {k: round(v, 2) for k, v in bucket_totals.items()},
         "transaction_details": transaction_details,
+        "needs_review": needs_review,
     }
